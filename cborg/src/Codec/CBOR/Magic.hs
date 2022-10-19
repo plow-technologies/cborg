@@ -125,6 +125,8 @@ import           GHC.Exts as Compat (wordToWord64#, word64ToWord#,
                                      intToInt64#, int64ToInt#,
                                      leWord64#, ltWord64#, word64ToInt64#)
                                 
+#endif
+#if MIN_VERSION_base(4,14,0)
 #else
 import           GHC.IntWord64 as Compat (wordToWord64#, word64ToWord#,
                                           intToInt64#, int64ToInt#,
