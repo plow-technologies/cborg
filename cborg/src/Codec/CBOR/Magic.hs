@@ -109,7 +109,7 @@ import           Data.ByteString (ByteString)
 import qualified Data.ByteString          as BS
 import qualified Data.ByteString.Internal as BS
 import qualified Data.ByteString.Unsafe   as BS
-import           Data.Primitive.ByteArray as Prim hiding (copyByteArrayToPtr)
+import           Data.Primitive.ByteArray as Prim hiding (copyByteArrayToPtr, copyPtrToMutableByteArray)
 
 import           Foreign.ForeignPtr (withForeignPtr)
 import           Foreign.C (CUShort)
@@ -120,12 +120,20 @@ import qualified Numeric.Half as Half
 import           Data.Bits ((.|.), unsafeShiftL)
 #endif
 
-#if defined(ARCH_32bit)
-import           GHC.IntWord64 (wordToWord64#, word64ToWord#,
-                                intToInt64#, int64ToInt#,
-                                leWord64#, ltWord64#, word64ToInt64#)
-
+#if MIN_VERSION_base(4,17,0)
+import           GHC.Exts as Compat (wordToWord64#, word64ToWord#,
+                                     intToInt64#, int64ToInt#,
+                                     leWord64#, ltWord64#, word64ToInt64#)
+                                
 #endif
+#if MIN_VERSION_base(4,14,0)
+#else
+import           GHC.IntWord64 as Compat (wordToWord64#, word64ToWord#,
+                                          intToInt64#, int64ToInt#,
+                                          leWord64#, ltWord64#, word64ToInt64#)
+#endif
+
+
 
 --------------------------------------------------------------------------------
 
@@ -167,7 +175,11 @@ grabWord16 (Ptr ip#) = W16# (narrow16Word# (byteSwap16# (indexWord16OffAddr# ip#
 grabWord32 (Ptr ip#) = W32# (narrow32Word# (byteSwap32# (indexWord32OffAddr# ip# 0#)))
 #endif
 #if defined(ARCH_64bit)
+#if MIN_VERSION_base(4,17,0)
+grabWord64 (Ptr ip#) = W64# (Compat.wordToWord64# (byteSwap# (word64ToWord# (indexWord64OffAddr# ip# 0#))))
+#else
 grabWord64 (Ptr ip#) = W64# (byteSwap# (indexWord64OffAddr# ip# 0#))
+#endif
 #else
 grabWord64 (Ptr ip#) = W64# (byteSwap64# (word64ToWord# (indexWord64OffAddr# ip# 0#)))
 #endif
@@ -196,8 +208,8 @@ grabWord16 (Ptr ip#) =
   where
 #if MIN_VERSION_ghc_prim(0,8,0)
     w16 w# = W16# (wordToWord16# (word8ToWord# w#))
-#else 
-    w16 w# = W16# w#  
+#else
+    w16 w# = W16# w#
 #endif
 
 grabWord32 (Ptr ip#) =
@@ -212,11 +224,11 @@ grabWord32 (Ptr ip#) =
                   w32 w1# `unsafeShiftL` 16 .|.
                   w32 w2# `unsafeShiftL`  8 .|.
                   w32 w3#
-  where 
+  where
 #if MIN_VERSION_ghc_prim(0,8,0)
     w32 w# = W32# (wordToWord32# (word8ToWord# w#))
-#else 
-    w32 w# = W32# w#  
+#else
+    w32 w# = W32# w#
 #endif
 
 grabWord64 (Ptr ip#) =
@@ -247,15 +259,15 @@ grabWord64 (Ptr ip#) =
 #if MIN_VERSION_ghc_prim(0,8,0)
     toWord :: Word8# -> Word#
     toWord w# = word8ToWord# w#
-#else 
+#else
     toWord :: Word# -> Word#
-    toWord w# = w#  
+    toWord w# = w#
 #endif
 
 #if WORD_SIZE_IN_BITS == 64
     w64 w# = W64# (toWord w#)
-#else 
-    w64 w# = W64# (wordToWord64# (toWord w#))
+#else
+    w64 w# = W64# (Compat.wordToWord64# (toWord w#))
 #endif
 
 #endif
@@ -439,10 +451,14 @@ word8ToWord  (W8#  w#) = W# (word8ToWord# w#)
 word16ToWord (W16# w#) = W# (word16ToWord# w#)
 word32ToWord (W32# w#) = W# (word32ToWord# w#)
 #if defined(ARCH_64bit)
+#if MIN_VERSION_base(4,17,0)
+word64ToWord (W64# w#) = W# (word64ToWord# w#)
+#else
 word64ToWord (W64# w#) = W# w#
+#endif
 #else
 word64ToWord (W64# w64#) =
-  case isTrue# (w64# `leWord64#` wordToWord64# 0xffffffff##) of
+  case isTrue# (w64# `leWord64#` Compat.wordToWord64# 0xffffffff##) of
     True  -> Just (W# (word64ToWord# w64#))
     False -> Nothing
 #endif
@@ -454,7 +470,7 @@ word32ToWord (W32# w#) = W# w#
 word64ToWord (W64# w#) = W# w#
 #else
 word64ToWord (W64# w64#) =
-  case isTrue# (w64# `leWord64#` wordToWord64# 0xffffffff##) of
+  case isTrue# (w64# `leWord64#` Compat.wordToWord64# 0xffffffff##) of
     True  -> Just (W# (word64ToWord# w64#))
     False -> Nothing
 #endif
@@ -472,7 +488,7 @@ word16ToInt (W16# w#) = I# (word2Int# (word16ToWord# w#))
 word32ToInt (W32# w#) = I# (word2Int# (word32ToWord# w#))
 #else
 word32ToInt (W32# w#) =
-  case isTrue# (w# `ltWord#` 0x80000000##) of
+  case isTrue# (word32ToWord# w# `ltWord#` 0x80000000##) of
     True  -> Just (I# (word2Int# (word32ToWord# w#)))
     False -> Nothing
 #endif
@@ -492,12 +508,22 @@ word32ToInt (W32# w#) =
 
 #if defined(ARCH_64bit)
 word64ToInt (W64# w#) =
+#if MIN_VERSION_base(4,17,0)
+  case isTrue# (word64ToWord# w# `ltWord#` 0x8000000000000000##) of
+#else
   case isTrue# (w# `ltWord#` 0x8000000000000000##) of
-    True  -> Just (I# (word2Int# w#))
+#endif
+    True  ->
+#if MIN_VERSION_base(4,17,0)
+        Just (I# (word2Int# (word64ToWord# w#)))
+
+#else
+        Just (I# (word2Int# w#))
+#endif
     False -> Nothing
 #else
 word64ToInt (W64# w#) =
-  case isTrue# (w# `ltWord64#` wordToWord64# 0x80000000##) of
+  case isTrue# (w# `ltWord64#` Compat.wordToWord64# 0x80000000##) of
     True  -> Just (I# (int64ToInt# (word64ToInt64# w#)))
     False -> Nothing
 #endif
@@ -508,17 +534,32 @@ word64ToInt (W64# w#) =
 {-# INLINE word64ToInt #-}
 
 #if defined(ARCH_32bit)
+
+#if MIN_VERSION_ghc_prim(0,8,0)
+word8ToInt64  (W8#  w#) = I64# (intToInt64# (word2Int# (word8ToWord# w#)))
+word16ToInt64 (W16# w#) = I64# (intToInt64# (word2Int# (word16ToWord# w#)))
+word32ToInt64 (W32# w#) = I64# (word64ToInt64# (Compat.wordToWord64# (word32ToWord# w#)))
+#else
 word8ToInt64  (W8#  w#) = I64# (intToInt64# (word2Int# w#))
 word16ToInt64 (W16# w#) = I64# (intToInt64# (word2Int# w#))
 word32ToInt64 (W32# w#) = I64# (word64ToInt64# (wordToWord64# w#))
+#endif
+
+
 word64ToInt64 (W64# w#) =
-  case isTrue# (w# `ltWord64#` uncheckedShiftL64# (wordToWord64# 1##) 63#) of
+  case isTrue# (w# `ltWord64#` uncheckedShiftL64# (Compat.wordToWord64# 1##) 63#) of
     True  -> Just (I64# (word64ToInt64# w#))
     False -> Nothing
 
-word8ToWord64  (W8#  w#) = W64# (wordToWord64# w#)
-word16ToWord64 (W16# w#) = W64# (wordToWord64# w#)
-word32ToWord64 (W32# w#) = W64# (wordToWord64# w#)
+#if MIN_VERSION_ghc_prim(0,8,0)
+word8ToWord64  (W8#  w#) = W64# (Compat.wordToWord64# (word8ToWord# w#))
+word16ToWord64 (W16# w#) = W64# (Compat.wordToWord64# (word16ToWord# w#))
+word32ToWord64 (W32# w#) = W64# (Compat.wordToWord64# (word32ToWord# w#))
+#else
+word8ToWord64  (W8#  w#) = W64# (Compat.wordToWord64# w#)
+word16ToWord64 (W16# w#) = W64# (Compat.wordToWord64# w#)
+word32ToWord64 (W32# w#) = W64# (Compat.wordToWord64# w#)
+#endif
 
 {-# INLINE word8ToInt64  #-}
 {-# INLINE word16ToInt64 #-}
