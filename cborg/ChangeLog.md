@@ -1,5 +1,9 @@
 # Revision history for cborg
 
+## 0.2.9.0  -- 2022-10-26
+
+* building in ghc 8.8.4 on 64 bit machine
+
 ## 0.2.8.0  -- 2022-09-24
 
 * Support GHC 9.4
